@@ -1751,6 +1751,57 @@ class WelcomePage(QWidget):
 
         layout.addWidget(browse_section)
 
+        # ── PAYMENT METHODS SECTION ───────────────────────────
+        pay_section = QWidget()
+        pay_section.setStyleSheet("background: rgba(13,17,23,0.92);")
+        pay_layout = QVBoxLayout(pay_section)
+        pay_layout.setContentsMargins(50, 36, 50, 40)
+        pay_layout.setSpacing(16)
+
+        pay_title = QLabel("💳  Payment Methods")
+        pay_title.setStyleSheet("color: white; font-size: 22px; font-weight: bold; background: transparent; border: none;")
+        pay_layout.addWidget(pay_title)
+
+        pay_sub = QLabel("We accept the following payment options for monthly rent and bills.")
+        pay_sub.setStyleSheet("color: #8B949E; font-size: 13px; background: transparent; border: none;")
+        pay_layout.addWidget(pay_sub)
+
+        pay_methods_row = QHBoxLayout()
+        pay_methods_row.setSpacing(16)
+        payment_methods = [
+            ("🏦", "Bank Transfer",    "BDO / BPI / Metrobank\nDeposit to dorm account\nInclude your full name as reference"),
+            ("📱", "GCash / Maya",     "Send to registered dorm number\nInclude your name & room number\nin the message"),
+            ("💵", "Cash",             "Pay at the admin office\nMonday–Saturday, 8AM–5PM\nAlways request a receipt"),
+            ("🏪", "Over-the-Counter", "7-Eleven, Bayad Center\nPalawan Pawnshop accepted\nAsk admin for reference no."),
+        ]
+        for icon, method, details in payment_methods:
+            card = QFrame()
+            card.setStyleSheet("background: rgba(22,27,34,0.95); border-radius: 14px; border: 1px solid rgba(255,215,0,0.2);")
+            card.setFixedHeight(150)
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(18, 16, 18, 16)
+            cl.setSpacing(6)
+            icon_lbl = QLabel(icon)
+            icon_lbl.setStyleSheet("font-size: 28px; background: transparent; border: none;")
+            method_lbl = QLabel(method)
+            method_lbl.setStyleSheet("color: #FFD700; font-size: 14px; font-weight: bold; background: transparent; border: none;")
+            details_lbl = QLabel(details)
+            details_lbl.setStyleSheet("color: #8B949E; font-size: 11px; background: transparent; border: none;")
+            details_lbl.setWordWrap(True)
+            cl.addWidget(icon_lbl)
+            cl.addWidget(method_lbl)
+            cl.addWidget(details_lbl)
+            cl.addStretch()
+            pay_methods_row.addWidget(card)
+        pay_layout.addLayout(pay_methods_row)
+
+        pay_note = QLabel("⚠  Always keep your official receipt or payment screenshot. For issues, contact the admin office.")
+        pay_note.setStyleSheet("color: #F0883E; font-size: 12px; background: transparent; border: none;")
+        pay_note.setWordWrap(True)
+        pay_layout.addWidget(pay_note)
+
+        layout.addWidget(pay_section)
+
         outer_scroll.setWidget(page_widget)
 
         # Load rooms after widgets are set up
@@ -1815,12 +1866,19 @@ class WelcomePage(QWidget):
                 message=data.get('message') or '',
             )
             if ok:
+                email_entered = data.get('email', '').strip()
+                email_note = (
+                    f"\nA confirmation email has been sent to:\n{email_entered}"
+                    if email_entered else
+                    "\n(No email provided — no confirmation sent.)"
+                )
                 QMessageBox.information(
                     self, "✓ Application Submitted!",
                     f"Thank you, {data['first_name']}! Your rental application has been submitted.\n\n"
                     "The admin will review your application shortly.\n"
                     "Once approved, you will receive your login credentials\n"
                     "to access your tenant dashboard."
+                    + email_note
                 )
             else:
                 QMessageBox.warning(
@@ -1903,7 +1961,7 @@ class LoginPage(QWidget):
         card_layout.addWidget(self.info_label)
 
         self.user_input = QLineEdit()
-        self.user_input.setPlaceholderText("Username")
+        self.user_input.setPlaceholderText("Username or Email")
         self.user_input.setFixedSize(370, 50)
         self.user_input.setStyleSheet(
             "QLineEdit { background-color: #0D1117; color: white; border: 1px solid #30363D; border-radius: 10px; padding-left: 15px; }"
@@ -1944,8 +2002,18 @@ class LoginPage(QWidget):
         login_btn.clicked.connect(self.handle_login)
         card_layout.addWidget(login_btn)
 
+        forgot_btn = QPushButton("Forgot Password? Reset via Email")
+        forgot_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #58A6FF; border: none; "
+            "font-size: 12px; text-decoration: underline; cursor: pointer; margin-top: 4px; }"
+            "QPushButton:hover { color: #FFD700; }"
+        )
+        forgot_btn.setCursor(Qt.PointingHandCursor)
+        forgot_btn.clicked.connect(self._open_forgot_password)
+        card_layout.addWidget(forgot_btn, alignment=Qt.AlignCenter)
+
         footer_note = QLabel("Don't have an account? Contact Admin or Apply to Rent.")
-        footer_note.setStyleSheet("color: #8B949E; font-size: 12px; border: none; margin-top: 10px;")
+        footer_note.setStyleSheet("color: #8B949E; font-size: 12px; border: none; margin-top: 6px;")
         card_layout.addWidget(footer_note, alignment=Qt.AlignCenter)
 
         main_layout.addWidget(self.card, alignment=Qt.AlignCenter)
@@ -2005,6 +2073,182 @@ class LoginPage(QWidget):
         except Exception as e:
             print(f"[Renter login] {e}")
         return None
+
+    # ── OTP / Forgot-Password flow ────────────────────────────
+    def _open_forgot_password(self):
+        """Step 1 — collect email and trigger OTP dispatch."""
+        email, ok = self._get_text_input(
+            "Password Reset",
+            "Enter your registered email address:",
+            placeholder="your@email.com",
+        )
+        if not ok or not email.strip():
+            return
+        email = email.strip().lower()
+
+        admin_mod  = database.AdminModule()
+        renter_mod = database.RenterModule()
+        sent = admin_mod.reset_password_request(email) or \
+               renter_mod.reset_password_request(email)
+
+        if not sent:
+            QMessageBox.warning(
+                self, "Not Found",
+                "No account was found with that email address.\n"
+                "Please check the email or contact the admin.",
+            )
+            return
+
+        QMessageBox.information(
+            self, "OTP Sent",
+            f"A 6-digit One-Time Password has been sent to:\n{email}\n\n"
+            "It is valid for 10 minutes.",
+        )
+        self._verify_otp_and_reset(email)
+
+    def _verify_otp_and_reset(self, email: str):
+        """Step 2 — verify OTP, then set new password."""
+        import email_service as _es
+
+        otp, ok = self._get_text_input(
+            "Enter OTP",
+            f"Enter the 6-digit OTP sent to {email}:",
+            placeholder="123456",
+        )
+        if not ok or not otp.strip():
+            return
+
+        if not _es.verify_otp(email, otp.strip()):
+            QMessageBox.warning(self, "Invalid OTP",
+                                "The OTP is incorrect or has expired.\n"
+                                "Please request a new one.")
+            return
+
+        new_pw, ok2 = self._get_text_input(
+            "New Password",
+            "Enter your new password (minimum 6 characters):",
+            echo_password=True,
+        )
+        if not ok2 or len(new_pw.strip()) < 6:
+            QMessageBox.warning(self, "Too Short",
+                                "Password must be at least 6 characters.")
+            return
+
+        import hashlib
+        new_hashed = hashlib.sha256(new_pw.strip().encode()).hexdigest()
+
+        admin_mod  = database.AdminModule()
+        renter_mod = database.RenterModule()
+        updated = False
+
+        # Try admin table
+        conn = admin_mod.connect()
+        if conn:
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE admins SET password=%s WHERE LOWER(email)=%s",
+                    (new_hashed, email),
+                )
+                conn.commit()
+                updated = cur.rowcount > 0
+            except Exception as e:
+                print(f"[ForgotPW admin] {e}")
+            finally:
+                conn.close()
+
+        # Try renter table
+        if not updated:
+            conn = renter_mod.connect()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT renter_id FROM renters WHERE LOWER(email)=%s",
+                        (email,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        cur.execute(
+                            "UPDATE renter_accounts SET password=%s "
+                            "WHERE renter_id=%s",
+                            (new_hashed, row[0]),
+                        )
+                        conn.commit()
+                        updated = cur.rowcount > 0
+                except Exception as e:
+                    print(f"[ForgotPW renter] {e}")
+                finally:
+                    conn.close()
+
+        if updated:
+            QMessageBox.information(
+                self, "Password Updated ✓",
+                "Your password has been reset successfully.\n"
+                "Please log in with your new password.",
+            )
+            self.user_input.setText(email)
+            self.pass_input.clear()
+        else:
+            QMessageBox.critical(
+                self, "Error",
+                "Could not update password. Please try again or contact admin.",
+            )
+
+    @staticmethod
+    def _get_text_input(title: str, label: str, placeholder: str = "",
+                        echo_password: bool = False):
+        """Lightweight single-field modal dialog. Returns (text, accepted)."""
+        dlg = QDialog()
+        dlg.setWindowTitle(title)
+        dlg.setFixedWidth(400)
+        dlg.setStyleSheet(
+            "QDialog { background:#161B22; color:white; border-radius:12px; }"
+        )
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(28, 28, 28, 22)
+        layout.setSpacing(14)
+
+        lbl = QLabel(label)
+        lbl.setStyleSheet("color:#8B949E; font-size:13px; background:transparent;")
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        field = QLineEdit()
+        field.setPlaceholderText(placeholder)
+        if echo_password:
+            field.setEchoMode(QLineEdit.Password)
+        field.setStyleSheet(
+            "background:#0D1117; color:white; border:1px solid #30363D; "
+            "border-radius:8px; padding:8px 12px; font-size:13px;"
+        )
+        layout.addWidget(field)
+
+        btns = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(
+            "background:#21262D; color:#8B949E; border:none; border-radius:8px; "
+            "padding:8px 20px; font-size:13px;"
+        )
+        cancel_btn.clicked.connect(dlg.reject)
+
+        confirm_btn = QPushButton("Confirm")
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.setStyleSheet(
+            "background:#FFD700; color:black; border:none; border-radius:8px; "
+            "padding:8px 20px; font-size:13px; font-weight:bold;"
+        )
+        confirm_btn.clicked.connect(dlg.accept)
+        field.returnPressed.connect(dlg.accept)
+
+        btns.addStretch()
+        btns.addWidget(cancel_btn)
+        btns.addWidget(confirm_btn)
+        layout.addLayout(btns)
+
+        accepted = dlg.exec() == QDialog.Accepted
+        return field.text(), accepted
 
     def resizeEvent(self, event):
         self.bg_label.resize(self.size())
@@ -2228,12 +2472,12 @@ class DashboardPage(QWidget):
         visibility = {
             0:  True,
             1:  is_admin,       # Applications — admin only
-            2:  is_staff,
+            2:  is_staff,       # Renters list — staff only (renters can't see others)
             3:  is_admin,
             4:  is_staff,
             5:  True,           # Vacant — everyone can see
             6:  is_staff,
-            7:  is_staff,
+            7:  True,           # Bills & Pay — everyone (renters see own payments)
             8:  is_staff,
             9:  True,           # Maintenance — renters can submit
             10: is_staff,
@@ -2250,6 +2494,10 @@ class DashboardPage(QWidget):
             self.staff_delete_btn.setVisible(is_admin)
         if hasattr(self, 'renter_delete_btn'):
             self.renter_delete_btn.setVisible(is_admin)
+        if hasattr(self, 'renter_edit_btn'):
+            self.renter_edit_btn.setVisible(is_staff and not is_renter)
+        if hasattr(self, 'renter_pic_btn'):
+            self.renter_pic_btn.setVisible(is_staff and not is_renter)
         if hasattr(self, 'room_add_btn'):
             self.room_add_btn.setVisible(is_admin)
             self.room_delete_btn.setVisible(is_admin)
@@ -2268,6 +2516,17 @@ class DashboardPage(QWidget):
 
         if is_renter:
             self._customize_renter_dashboard()
+            # Rename Bills & Pay to "My Payments" in sidebar
+            for btn in self.sidebar_buttons:
+                if btn.property("page_index") == 7:
+                    btn.setText("  My Payments")
+                    break
+        else:
+            # Restore original label for staff/admin
+            for btn in self.sidebar_buttons:
+                if btn.property("page_index") == 7:
+                    btn.setText("  Bills & Pay")
+                    break
 
     def _refresh_app_badge(self):
         """Show a red badge on the Applications sidebar button if there are pending applications."""
@@ -2289,36 +2548,128 @@ class DashboardPage(QWidget):
             pass
 
     def _customize_renter_dashboard(self):
-        """Replace dashboard stat cards with renter-specific info."""
+        """Replace dashboard stat cards and sections with renter-specific info."""
         renter_id = self.current_user.get('renter_id')
         if not renter_id:
             return
         try:
-            # Room assignment
+            # ── Room card ───────────────────────
             assignment = self.renter_db.get_renter_assignment(renter_id)
             if assignment:
-                self.stat_total_rooms.value_label.setText(f"Room {assignment.get('room_number','?')}")
+                room_no   = assignment.get('room_number', '?')
+                floor     = assignment.get('floor_level', '?')
+                rate      = float(assignment.get('monthly_rate') or 0)
+                self.stat_total_rooms.value_label.setText(f"Room {room_no}")
                 self.stat_total_rooms.setToolTip(
-                    f"Floor: {assignment.get('floor_level','?')}\n"
-                    f"Rate: ₱{assignment.get('monthly_rate',0):,.0f}/mo"
+                    f"Floor: {floor}\nRate: ₱{rate:,.0f}/mo"
                 )
             else:
                 self.stat_total_rooms.value_label.setText("No Room")
 
-            # Payments
+            # ── Payments ────────────────────────
             payments = self.renter_db.get_renter_payments(renter_id)
-            pending = sum(1 for p in payments if p.get('status') == 'Pending')
-            paid    = sum(float(p['amount']) for p in payments if p.get('status') == 'Paid')
+            pending  = sum(1 for p in payments if p.get('status') in ('Pending', 'Overdue'))
+            total_paid = sum(float(p['amount']) for p in payments if p.get('status') == 'Paid')
             self.stat_payments.value_label.setText(str(pending))
-            self.stat_vacant.value_label.setText(f"₱{paid:,.0f}")
+            self.stat_payments.setToolTip(f"Total paid to date: ₱{total_paid:,.0f}")
+            self.stat_vacant.value_label.setText(f"₱{total_paid:,.0f}")
 
-            # Maintenance
+            # ── Maintenance ─────────────────────
             maint = self.renter_db.get_renter_maintenance(renter_id)
             pending_m = sum(1 for m in maint if m.get('status') == 'Pending')
             self.stat_maint.value_label.setText(str(pending_m))
 
+            # ── Rename stat cards for renter context ──
+            for card, title in [
+                (self.stat_total_rooms, "My Room"),
+                (self.stat_vacant,      "Total Paid"),
+                (self.stat_payments,    "Pending Bills"),
+                (self.stat_maint,       "Maintenance"),
+            ]:
+                # Update the title label inside the card (first QLabel in layout)
+                for i in range(card.layout().count()):
+                    item = card.layout().itemAt(i)
+                    if item and item.layout():
+                        for j in range(item.layout().count()):
+                            sub = item.layout().itemAt(j)
+                            if sub and sub.widget() and isinstance(sub.widget(), QLabel):
+                                lbl = sub.widget()
+                                if lbl.text() in ("Total Rooms", "Vacant Rooms",
+                                                   "Pending Bills", "Maintenance",
+                                                   "My Room", "Total Paid"):
+                                    lbl.setText(title)
+                                break
+                        break
+
+            # ── Payment methods info panel ───────
+            # Show available payment methods in a notice below maintenance cards
+            self._show_renter_payment_methods_panel()
+
         except Exception as e:
             print(f"[_customize_renter_dashboard] {e}")
+
+    def _show_renter_payment_methods_panel(self):
+        """Add a payment methods info card to the renter dashboard."""
+        try:
+            # Remove old panel if exists
+            if hasattr(self, '_renter_pay_panel') and self._renter_pay_panel:
+                try:
+                    self._renter_pay_panel.setParent(None)
+                    self._renter_pay_panel.deleteLater()
+                except Exception:
+                    pass
+
+            t = Theme.get()
+            panel = QFrame()
+            panel.setStyleSheet(
+                f"background: {t['surface']}; border-radius: 14px; "
+                f"border: 1px solid {t['border']};"
+            )
+            pl = QVBoxLayout(panel)
+            pl.setContentsMargins(20, 16, 20, 16)
+            pl.setSpacing(10)
+
+            hdr = QLabel("💳  Payment Methods Accepted")
+            hdr.setStyleSheet(f"color: {t['text']}; font-size: 15px; font-weight: bold; "
+                              f"background: transparent; border: none;")
+            pl.addWidget(hdr)
+
+            methods = [
+                ("🏦  Bank Transfer",  "BDO / BPI / Metrobank — deposit to dorm account"),
+                ("📱  GCash / Maya",   "Send to registered dorm number, include your name"),
+                ("💵  Cash",           "Pay in person at the admin office, request a receipt"),
+                ("🏪  Over-the-Counter", "7-Eleven, Bayad Center — ask admin for reference no."),
+            ]
+            grid = QGridLayout()
+            grid.setSpacing(8)
+            for i, (method_title, desc) in enumerate(methods):
+                m_lbl = QLabel(method_title)
+                m_lbl.setStyleSheet(f"color: {t['accent']}; font-size: 13px; font-weight: bold; "
+                                    f"background: transparent; border: none;")
+                d_lbl = QLabel(desc)
+                d_lbl.setStyleSheet(f"color: {t['text_muted']}; font-size: 12px; "
+                                    f"background: transparent; border: none;")
+                d_lbl.setWordWrap(True)
+                grid.addWidget(m_lbl, i, 0)
+                grid.addWidget(d_lbl, i, 1)
+            pl.addLayout(grid)
+
+            note = QLabel("⚠  Always ask for an official receipt or screenshot after payment.")
+            note.setStyleSheet(f"color: {t['orange']}; font-size: 11px; "
+                               f"background: transparent; border: none;")
+            note.setWordWrap(True)
+            pl.addWidget(note)
+
+            # Insert into home page layout (before stretch at end)
+            home_inner = self.home_page.widget()
+            home_layout = home_inner.layout()
+            # Insert before the last stretch
+            count = home_layout.count()
+            home_layout.insertWidget(count - 1, panel)
+            self._renter_pay_panel = panel
+
+        except Exception as e:
+            print(f"[_show_renter_payment_methods_panel] {e}")
 
     def switch_page(self, index):
         self.pages_content.setCurrentIndex(index)
@@ -2907,18 +3258,18 @@ class DashboardPage(QWidget):
 
         btn_row = QHBoxLayout()
         view_btn   = make_btn("  View",    T("blue"),   "white", icon="fa5s.eye",       icon_color="white")
-        edit_btn   = make_btn("  Edit",    T("blue"),   "white", icon="fa5s.edit",      icon_color="white")
+        self.renter_edit_btn = make_btn("  Edit",    T("blue"),   "white", icon="fa5s.edit",      icon_color="white")
         self.renter_delete_btn = make_btn("  Delete",  T("red"),    "white", icon="fa5s.trash-alt", icon_color="white")
-        pic_btn    = make_btn("  Set Pic", T("orange"), "white", icon="fa5s.camera",    icon_color="white")
+        self.renter_pic_btn    = make_btn("  Set Pic", T("orange"), "white", icon="fa5s.camera",    icon_color="white")
         view_btn.clicked.connect(self._view_renter)
-        edit_btn.clicked.connect(self.open_edit_renter_dialog)
+        self.renter_edit_btn.clicked.connect(self.open_edit_renter_dialog)
         self.renter_delete_btn.clicked.connect(self.delete_renter)
-        pic_btn.clicked.connect(self._renter_set_pic)
+        self.renter_pic_btn.clicked.connect(self._renter_set_pic)
         btn_row.addStretch()
         btn_row.addWidget(view_btn)
-        btn_row.addWidget(edit_btn)
+        btn_row.addWidget(self.renter_edit_btn)
         btn_row.addWidget(self.renter_delete_btn)
-        btn_row.addWidget(pic_btn)
+        btn_row.addWidget(self.renter_pic_btn)
         layout.addLayout(btn_row)
         return page
 
@@ -3144,15 +3495,20 @@ class DashboardPage(QWidget):
             if admin_id:
                 self.admin_db.add_log(admin_id, 'APPROVE_APPLICATION',
                                       f"Approved application from {name}. Login: {username}")
+            to_email = app.get('email', '')
+            email_note = (
+                f"\n\n📧 Credentials email is being sent to:\n  {to_email}"
+                if to_email else
+                "\n\n⚠  No email on file — share credentials manually."
+            )
             QMessageBox.information(
                 self, "✓ Application Approved!",
                 f"'{name}' has been approved and registered as a renter.\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"  Username:  {username}\n"
                 f"  Password:  {pw}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"Please share these credentials with the renter.\n"
-                f"They can change their password after first login."
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                f"{email_note}"
             )
             self.load_applications()
             self._refresh_app_badge()
@@ -3443,19 +3799,57 @@ class DashboardPage(QWidget):
         if dlg.exec():
             data = dlg.get_data()
             try:
-                conn = self.admin_db.connect()
-                cur = conn.cursor()
-                pw = data.pop('password', 'changeme123')
-                hashed = hashlib.sha256(pw.encode()).hexdigest()
-                cur.execute("INSERT INTO admins (full_name, username, password, role) VALUES (%s,%s,%s,%s)",
-                            (data['full_name'], data['username'], hashed, data.get('role', 'Staff')))
-                conn.commit()
-                conn.close()
-                if self.current_user and self.current_user.get('admin_id'):
-                    self.admin_db.add_log(self.current_user['admin_id'], 'ADD_STAFF',
-                                          f"Added staff: {data['full_name']}")
-                QMessageBox.information(self, "Success", "Staff added!")
-                self.load_staff()
+                pw       = data.pop('password', 'changeme123')
+                email    = data.get('email') or ''
+                ok = self.admin_db.add_admin(
+                    username  = data['username'],
+                    password  = pw,
+                    full_name = data['full_name'],
+                    role      = data.get('role', 'Staff'),
+                    email     = email,
+                )
+                if ok:
+                    # Update email/contact columns (add_admin doesn't set contact yet)
+                    contact = data.get('contact_number') or ''
+                    if contact or email:
+                        prof = database.ProfileModule()
+                        # Fetch the new admin_id
+                        conn = self.admin_db.connect()
+                        if conn:
+                            try:
+                                cur = conn.cursor()
+                                cur.execute(
+                                    "SELECT admin_id FROM admins WHERE username=%s",
+                                    (data['username'],),
+                                )
+                                row_r = cur.fetchone()
+                                if row_r:
+                                    prof.update_admin_profile(
+                                        row_r[0],
+                                        email=email or None,
+                                        contact_number=contact or None,
+                                    )
+                            except Exception:
+                                pass
+                            finally:
+                                conn.close()
+
+                    if self.current_user and self.current_user.get('admin_id'):
+                        self.admin_db.add_log(
+                            self.current_user['admin_id'], 'ADD_STAFF',
+                            f"Added staff: {data['full_name']} — "
+                            f"invitation email {'sent' if email else 'skipped (no email)'}.",
+                        )
+                    msg = "Staff member added successfully!"
+                    if email:
+                        msg += f"\n\nAn invitation email with login credentials\nhas been sent to: {email}"
+                    else:
+                        msg += f"\n\nNo email provided — credentials:\nUsername: {data['username']}\nPassword: {pw}"
+                    QMessageBox.information(self, "Staff Added", msg)
+                    self.load_staff()
+                else:
+                    QMessageBox.critical(self, "Error",
+                                         "Failed to add staff. Username may already exist.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed: {e}")
 
@@ -3781,6 +4175,7 @@ class DashboardPage(QWidget):
 
         layout.addWidget(page_header("Bills & Payments", "  Add Payment", self.open_add_payment_dialog, btn_icon="fa5s.plus"))
 
+
         # Summary cards
         pay_stats_row = QHBoxLayout()
         pay_stats_row.setSpacing(12)
@@ -3813,18 +4208,39 @@ class DashboardPage(QWidget):
         layout.addWidget(self.payments_table)
 
         btn_row = QHBoxLayout()
-        status_btn = make_btn("  Mark Paid", T("green"), "white", icon="fa5s.check-circle", icon_color="white")
+        self.pay_mark_paid_btn = make_btn("  Mark Paid", T("green"), "white", icon="fa5s.check-circle", icon_color="white")
+        self.pay_add_btn = make_btn("  Add Payment", T("green"), "white", icon="fa5s.plus", icon_color="white")
         self.payment_delete_btn = make_btn("  Delete", T("red"), "white", icon="fa5s.trash-alt", icon_color="white")
-        status_btn.clicked.connect(self.mark_payment_paid)
+        self.pay_mark_paid_btn.clicked.connect(self.mark_payment_paid)
+        self.pay_add_btn.clicked.connect(self.open_add_payment_dialog)
         self.payment_delete_btn.clicked.connect(self.delete_payment)
         btn_row.addStretch()
-        btn_row.addWidget(status_btn)
+        btn_row.addWidget(self.pay_mark_paid_btn)
+        btn_row.addWidget(self.pay_add_btn)
         btn_row.addWidget(self.payment_delete_btn)
         layout.addLayout(btn_row)
         return page
 
     def load_payments(self):
-        payments = self.payment_db.get_all_payments()
+        role = self.current_user.get('role', '') if self.current_user else ''
+        if role == 'Renter':
+            renter_id = self.current_user.get('renter_id')
+            payments = self.renter_db.get_renter_payments(renter_id) if renter_id else []
+            # Hide admin-only buttons
+            if hasattr(self, 'pay_add_btn'):
+                self.pay_add_btn.setVisible(False)
+            if hasattr(self, 'pay_mark_paid_btn'):
+                self.pay_mark_paid_btn.setVisible(False)
+            if hasattr(self, 'payment_delete_btn'):
+                self.payment_delete_btn.setVisible(False)
+        else:
+            payments = self.payment_db.get_all_payments()
+            if hasattr(self, 'pay_add_btn'):
+                self.pay_add_btn.setVisible(True)
+            if hasattr(self, 'pay_mark_paid_btn'):
+                self.pay_mark_paid_btn.setVisible(True)
+            if hasattr(self, 'payment_delete_btn'):
+                self.payment_delete_btn.setVisible(True)
         self._display_payments(payments)
         self._update_payment_stats(payments)
 
@@ -4566,6 +4982,10 @@ class DashboardPage(QWidget):
         change_pic_btn = make_btn("  Change Photo", T("blue"), "white", icon="fa5s.camera", icon_color="white")
         change_pic_btn.clicked.connect(self._profile_change_photo)
         top_layout.addWidget(change_pic_btn, alignment=Qt.AlignBottom)
+
+        remove_pic_btn = make_btn("  Remove Photo", T("red"), "white", icon="fa5s.trash-alt", icon_color="white")
+        remove_pic_btn.clicked.connect(self._profile_remove_photo)
+        top_layout.addWidget(remove_pic_btn, alignment=Qt.AlignBottom)
         layout.addWidget(top_card)
 
         # ── Edit info form ──────────────────
@@ -4758,6 +5178,32 @@ class DashboardPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not update photo: {e}")
 
+    def _profile_remove_photo(self):
+        if not self.current_user:
+            return
+        reply = QMessageBox.question(
+            self, "Remove Photo",
+            "Remove your profile photo? Your avatar will revert to initials.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        role = self.current_user.get('role', '')
+        name = self.current_user.get('full_name', '?')
+        try:
+            prof_mod = database.ProfileModule()
+            if role == 'Renter':
+                renter_id = self.current_user.get('renter_id')
+                prof_mod.update_renter_profile(renter_id, profile_pic_path='')
+            else:
+                admin_id = self.current_user.get('admin_id')
+                prof_mod.update_admin_profile(admin_id, profile_pic_path='')
+            self.profile_avatar.set_avatar(name, None)
+            self.sidebar_avatar.set_avatar(name, None)
+            QMessageBox.information(self, "Removed", "Profile photo removed.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not remove photo: {e}")
+
     def _profile_save_info(self):
         if not self.current_user:
             return
@@ -4886,24 +5332,10 @@ if __name__ == "__main__":
     # ── Auto-migrate plaintext passwords on first run ──
     try:
         _am = database.AdminModule()
+        _am.ensure_admin_columns()          # add email/contact/pic columns if missing
         _am.hash_existing_admin_passwords()
         _rm = database.RenterModule()
         _rm.hash_existing_renter_passwords()
-        # Ensure extra admin columns exist (email, contact_number, profile_pic_path)
-        _conn = _am.connect()
-        if _conn:
-            _cur = _conn.cursor()
-            for _col, _typ in [
-                ("email",           "VARCHAR(150)"),
-                ("contact_number",  "VARCHAR(30)"),
-                ("profile_pic_path","VARCHAR(255)"),
-            ]:
-                try:
-                    _cur.execute(f"ALTER TABLE admins ADD COLUMN IF NOT EXISTS `{_col}` {_typ} DEFAULT NULL")
-                except Exception:
-                    pass
-            _conn.commit()
-            _conn.close()
     except Exception as _e:
         print(f"[Startup migration] {_e}")
 
